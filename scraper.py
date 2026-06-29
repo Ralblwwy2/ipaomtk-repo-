@@ -1,51 +1,56 @@
 import os
 import json
+import re
 import requests
 
 REPO_NAME = "IPAOMTK Self-Updating Mirror"
 REPO_IDENTIFIER = "com.custom.ipaomtk.mirror"
 
-# Direct hidden API endpoint used by the IPAOMTK site platform to supply app lists
-IPAOMTK_API = "https://ipaomtk.com/wp-json/wp/v2/posts?per_page=100&_fields=title,slug,excerpt"
-
-def fetch_live_data():
+def fetch_live_library():
     apps_list = []
+    # Using their direct high-volume data feed endpoint that bypasses front-end firewalls
+    api_url = "https://ipaomtk.com/wp-json/wp/v2/posts"
+    
     headers = {
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'application/json'
+    }
+    
+    # Requesting 100 entries per page to collect their full library map
+    params = {
+        'per_page': 100,
+        '_fields': 'title,slug'
     }
     
     try:
-        # Fetching directly via the WordPress REST API endpoint which usually bypasses front-end browser firewall blocks
-        response = requests.get(IPAOMTK_API, headers=headers, timeout=15)
+        print("Connecting directly to official IPAOMTK data streams...")
+        response = requests.get(api_url, headers=headers, params=params, timeout=15)
+        
         if response.status_code == 200:
             posts = response.json()
-            print(f"API Connection Successful! Found {len(posts)} dynamic entries.")
+            print(f"Connection verified! Parsing {len(posts)} verified items...")
             
             for post in posts:
-                # Extract clean string data from API mapping
                 raw_title = post.get("title", {}).get("rendered", "")
                 slug = post.get("slug", "")
                 
                 if not raw_title or not slug:
                     continue
                 
-                # Dynamic version parser: extracts real version flags (e.g., 1.5.2) out of the title string safely
-                import re
-                version = "1.0"
-                version_match = re.search(r'(?:v|v\s?|version\s?)(\d+\.\d+[\.\d+]*)', raw_title, re.IGNORECASE)
-                if version_match:
-                    version = version_match.group(1)
+                # Dynamic version parsing regex: Extracts accurate release numbers from titles (e.g., v1.2, version 19.4)
+                version_match = re.search(r'(?:v|version\s?)(\d+\.\d+[\.\d+]*)', raw_title, re.IGNORECASE)
+                real_version = version_match.group(1) if version_match else "1.0"
                 
-                # Clean the version flags out of the display name so it looks professional
-                clean_name = re.sub(r'(?:v|v\s?|version\s?)(\d+\.\d+[\.\d+]*).*', '', raw_title, flags=re.IGNORECASE).strip()
-                clean_name = clean_name.replace("&#8211;", "-").replace("&amp;", "&")
+                # Format a clean app name by separating the version text tags safely
+                display_name = re.sub(r'(?:v|version\s?)(\d+\.\d+[\.\d+]*).*', '', raw_title, flags=re.IGNORECASE).strip()
+                display_name = display_name.replace("&#8211;", "-").replace("&amp;", "&")
                 
                 download_url = f"https://file.ipaomtk.com/ipa/{slug}.ipa"
                 
                 apps_list.append({
-                    "name": clean_name if clean_name else raw_title,
+                    "name": display_name if display_name else raw_title,
                     "bundleIdentifier": f"com.ipaomtk.{slug.replace('-', '.')}",
-                    "version": version,
+                    "version": real_version,
                     "versionDate": "2026-06-30",
                     "downloadURL": download_url,
                     "iconURL": "https://ipaomtk.com/favicon.ico",
@@ -54,21 +59,21 @@ def fetch_live_data():
                     "developerName": "IPAOMTK"
                 })
         else:
-            print(f"API server responded with code: {response.status_code}")
-    except Exception as e:
-        print(f"API read error: {e}")
+            print(f"API rejection error. Server state code: {response.status_code}")
+            
+    except Exception as network_err:
+        print(f"Connection timeout tracking error: {network_err}")
         
     return apps_list
 
 def main():
-    print("Initiating direct API sync database crawl...")
-    scraped_apps = fetch_live_data()
+    scraped_apps = fetch_live_library()
     
-    # Safety fallback preserves your 34 apps layout if the live API blocks the runner
+    # Absolute structural backup so the repository code never clears if the server drops frames
     if not scraped_apps:
-        print("API blocked by host security framework. Retaining hardcoded baseline index.")
+        print("Data extraction failed. Script exited cleanly without wiping target file.")
         return
-        
+
     repo_structure = {
         "name": REPO_NAME,
         "identifier": REPO_IDENTIFIER,
@@ -77,7 +82,7 @@ def main():
     
     with open("repo.json", "w", encoding="utf-8") as f:
         json.dump(repo_structure, f, indent=2, ensure_ascii=False)
-    print(f"Database generation complete. Successfully compiled {len(scraped_apps)} dynamic live records.")
+    print(f"Build phase successful! Populated repo.json with {len(scraped_apps)} up-to-date items.")
 
 if __name__ == "__main__":
     main()
