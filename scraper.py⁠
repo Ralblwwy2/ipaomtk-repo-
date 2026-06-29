@@ -4,50 +4,69 @@ import re
 import requests
 from bs4 import BeautifulSoup
 
-# Base structures
 REPO_NAME = "IPAOMTK Self-Updating Mirror"
 REPO_IDENTIFIER = "com.custom.ipaomtk.mirror"
 BASE_URL = "https://ipaomtk.com/"
 
 def fetch_apps():
     apps_list = []
+    # Mask headers completely to avoid web protection blocks
     headers = {
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15'
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5'
     }
     
     try:
         response = requests.get(BASE_URL, headers=headers, timeout=15)
         if response.status_code != 200:
+            print(f"Warning: Website returned status code {response.status_code}")
             return apps_list
             
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Scrape recent post elements from their WordPress structure
-        articles = soup.find_all('article') or soup.find_all('div', class_='post-item')
+        # Look broadly for links containing application details
+        links = soup.find_all('a', href=True)
         
-        for article in articles:
+        for link in links:
             try:
-                link_el = article.find('a')
-                if not link_el or 'href' not in link_el.attrs:
+                href = link['href']
+                # Target internal post pages while skipping system routes
+                if not href.startswith(BASE_URL) or any(x in href for x in ['/category/', '/tag/', '/wp-content/', '?s=']):
                     continue
                 
-                app_page_url = link_el['href']
-                app_name = article.find('h2').text.strip() if article.find('h2') else link_el.text.strip()
+                # Extract clean slug strings
+                slug = href.replace(BASE_URL, "").strip("/")
+                if not slug or "/" in slug:
+                    continue
                 
-                # Sanitize name to extract clean versioning strings if present
+                # Fetch text content cleanly
+                app_name = link.text.strip()
+                if not app_name or len(app_name) < 3:
+                    # Fallback to structural sibling headers if text is blank
+                    parent_h2 = link.find_parent('h2') or link.find('h2')
+                    if parent_h2:
+                        app_name = parent_h2.text.strip()
+                    else:
+                        continue
+
+                # Ensure it's not a duplicate item
+                if any(a['name'] == app_name for a in apps_list):
+                    continue
+
                 version = "1.0"
                 version_match = re.search(r'v\d+\.\d+[\.\d+]*', app_name, re.IGNORECASE)
                 if version_match:
                     version = version_match.group(0).lower().replace('v', '')
-                
-                img_el = article.find('img')
-                icon_url = img_el['src'] if img_el and 'src' in img_el.attrs else "https://ipaomtk.com/favicon.ico"
-                
-                # Format an expected direct-download route based on their CDN storage patterns
-                slug = app_page_url.strip('/').split('/')[-1]
+
                 download_url = f"https://file.ipaomtk.com/ipa/{slug}.ipa"
+                icon_url = "https://ipaomtk.com/favicon.ico"
                 
-                # Standardize data structure matching Ksign/ESign requirements
+                # Look for an image element contextually near or inside the link
+                img = link.find('img') or (link.parent.find('img') if link.parent else None)
+                if img and 'src' in img.attrs:
+                    icon_url = img['src']
+
                 app_data = {
                     "name": app_name,
                     "bundleIdentifier": f"com.ipaomtk.{slug.replace('-', '.')}",
@@ -60,18 +79,21 @@ def fetch_apps():
                     "developerName": "IPAOMTK"
                 }
                 apps_list.append(app_data)
-            except Exception:
+            except Exception as inner_e:
+                print(f"Skipping an unparseable element: {inner_e}")
                 continue
+                
     except Exception as e:
-        print(f"Error fetching data: {e}")
+        print(f"Error connecting to source library: {e}")
         
     return apps_list
 
 def main():
-    print("Scraping target library...")
+    print("Initiating target crawling sequence...")
     scraped_apps = fetch_apps()
     
-    # Structure database schema for Client parsing
+    print(f"Extraction sequence finished. Identified applications: {len(scraped_apps)}")
+    
     repo_structure = {
         "name": REPO_NAME,
         "identifier": REPO_IDENTIFIER,
@@ -80,7 +102,7 @@ def main():
     
     with open("repo.json", "w", encoding="utf-8") as f:
         json.dump(repo_structure, f, indent=2, ensure_ascii=False)
-    print(f"Successfully compiled database with {len(scraped_apps)} applications mapped.")
+    print("Local database generation complete.")
 
 if __name__ == "__main__":
     main()
