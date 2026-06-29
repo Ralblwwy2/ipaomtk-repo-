@@ -1,0 +1,39 @@
+name: Auto Refresh IPAOMTK Database
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Executes daily at 00:00 UTC
+  workflow_dispatch: # Allows manual trigger execution anytime via UI
+
+jobs:
+  refresh-repository:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository Code
+      uses: actions/checkout@v4
+
+    - name: Initialize Python Environment
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install Runtime Script Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests beautifulsoup4
+
+    - name: Execute Scraping Pipeline
+      run: python scraper.py
+
+    - name: Commit and Sync Generated Source Map
+      run: |
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+        git add repo.json
+        if ! git diff --cached --quiet; then
+          git commit -m "Automated Sync: Database definitions updated"
+          git push
+        else
+          echo "No structural updates or modified applications found."
+        fi
