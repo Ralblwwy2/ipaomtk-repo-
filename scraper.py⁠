@@ -1,0 +1,86 @@
+import os
+import json
+import re
+import requests
+from bs4 import BeautifulSoup
+
+# Base structures
+REPO_NAME = "IPAOMTK Self-Updating Mirror"
+REPO_IDENTIFIER = "com.custom.ipaomtk.mirror"
+BASE_URL = "https://ipaomtk.com/"
+
+def fetch_apps():
+    apps_list = []
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15'
+    }
+    
+    try:
+        response = requests.get(BASE_URL, headers=headers, timeout=15)
+        if response.status_code != 200:
+            return apps_list
+            
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Scrape recent post elements from their WordPress structure
+        articles = soup.find_all('article') or soup.find_all('div', class_='post-item')
+        
+        for article in articles:
+            try:
+                link_el = article.find('a')
+                if not link_el or 'href' not in link_el.attrs:
+                    continue
+                
+                app_page_url = link_el['href']
+                app_name = article.find('h2').text.strip() if article.find('h2') else link_el.text.strip()
+                
+                # Sanitize name to extract clean versioning strings if present
+                version = "1.0"
+                version_match = re.search(r'v\d+\.\d+[\.\d+]*', app_name, re.IGNORECASE)
+                if version_match:
+                    version = version_match.group(0).lower().replace('v', '')
+                
+                img_el = article.find('img')
+                icon_url = img_el['src'] if img_el and 'src' in img_el.attrs else "https://ipaomtk.com/favicon.ico"
+                
+                # Format an expected direct-download route based on their CDN storage patterns
+                slug = app_page_url.strip('/').split('/')[-1]
+                download_url = f"https://file.ipaomtk.com/ipa/{slug}.ipa"
+                
+                # Standardize data structure matching Ksign/ESign requirements
+                app_data = {
+                    "name": app_name,
+                    "bundleIdentifier": f"com.ipaomtk.{slug.replace('-', '.')}",
+                    "version": version,
+                    "versionDate": "2026-06-30",
+                    "downloadURL": download_url,
+                    "iconURL": icon_url,
+                    "size": 0,
+                    "category": "Tweaked",
+                    "developerName": "IPAOMTK"
+                }
+                apps_list.append(app_data)
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"Error fetching data: {e}")
+        
+    return apps_list
+
+def main():
+    print("Scraping target library...")
+    scraped_apps = fetch_apps()
+    
+    # Structure database schema for Client parsing
+    repo_structure = {
+        "name": REPO_NAME,
+        "identifier": REPO_IDENTIFIER,
+        "apps": scraped_apps
+    }
+    
+    with open("repo.json", "w", encoding="utf-8") as f:
+        json.dump(repo_structure, f, indent=2, ensure_ascii=False)
+    print(f"Successfully compiled database with {len(scraped_apps)} applications mapped.")
+
+if __name__ == "__main__":
+    main()
